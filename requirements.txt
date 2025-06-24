@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 numpy
-torch
+torch==2.4.0 
 torchaudio
 pydantic
 omegaconf
