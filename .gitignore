@@ -1,0 +1,6 @@
+__pycache__
+parakeet_service/__pycache__/*
+reference.wav
+*.pyc
+*/*.pyc
+*/*/*.pyc

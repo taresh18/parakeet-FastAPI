@@ -174,6 +174,72 @@ def test_transcribe_raw_endpoint(server_url, raw_pcm_data, sample_rate, duration
     
     return results, transcriptions
 
+def test_transcribe_raw_canary_endpoint(server_url, raw_pcm_data, sample_rate, duration, num_tests=5):
+    """Test the /v1/transcribe-raw/canary endpoint with detailed latency analysis."""
+    
+    print(f"🐦 Testing /v1/transcribe-raw/canary endpoint")
+    print("=" * 60)
+    print(f"🔥 Starting warmup + measurement tests...")
+    print("-" * 60)
+    
+    results = []
+    transcriptions = []
+    
+    # Use session for keep-alive connections
+    session = requests.Session()
+    
+    for i in range(num_tests + 1):  # +1 for warmup
+        start_time = time.time()
+        
+        try:
+            # Send raw audio data directly in request body
+            headers = {'Content-Type': 'application/octet-stream'}
+            params = {'sample_rate': sample_rate}
+            
+            response = session.post(
+                f"{server_url}/v1/transcribe-raw/canary",
+                data=raw_pcm_data,
+                headers=headers,
+                params=params,
+                timeout=30
+            )
+            
+            total_time = time.time() - start_time
+            
+            if response.status_code == 200:
+                result = response.json()
+                processing_time = result.get('processing_time', 0)
+                network_time = total_time - processing_time
+                transcription = result.get('text', '')
+                
+                if i == 0:  # Warmup
+                    print(f"WARMUP: ✓ {total_time*1000:.1f}ms total ({processing_time*1000:.1f}ms processing + {network_time*1000:.1f}ms network)")
+                    print(f"    📝 Text: \"{transcription[:200]}{'...' if len(transcription) > 200 else ''}\"")
+                    print(f"    🔥 Warmup complete - model loaded and ready")
+                else:
+                    print(f"Test {i}/{num_tests}: ✓ {total_time*1000:.1f}ms total ({processing_time*1000:.1f}ms processing + {network_time*1000:.1f}ms network)")
+                    print(f"    📝 Text: \"{transcription[:200]}{'...' if len(transcription) > 200 else ''}\"")
+                    
+                    results.append({
+                        'total_time': total_time,
+                        'processing_time': processing_time,
+                        'network_time': network_time
+                    })
+                    transcriptions.append(transcription)
+            else:
+                print(f"Test {i}/{num_tests}: ✗ Failed with status {response.status_code}")
+                print(f"    Response: {response.text}")
+                return None
+                
+        except Exception as e:
+            print(f"Test {i}/{num_tests}: ✗ Exception: {e}")
+            return None
+    
+    # Close session
+    session.close()
+    
+    return results, transcriptions
+
 def run_comparison_tests(server_url, audio_file, num_tests):
     """Run all comparison tests and return True if all succeed."""
     
@@ -227,8 +293,16 @@ def run_comparison_tests(server_url, audio_file, num_tests):
         # Test raw endpoint
         raw_results, raw_transcriptions = test_transcribe_raw_endpoint(server_url, raw_pcm_data, sample_rate, audio_duration, num_tests)
         
-        if not chunk_results or not raw_results:
-            print("\n❌ One or both endpoint tests failed!")
+        # Small delay between endpoint tests
+        print("\n" + "⏳" * 20)
+        print("Pausing 2 seconds between endpoint tests...")
+        time.sleep(2)
+        
+        # Test raw canary endpoint
+        canary_results, canary_transcriptions = test_transcribe_raw_canary_endpoint(server_url, raw_pcm_data, sample_rate, audio_duration, num_tests)
+        
+        if not chunk_results or not raw_results or not canary_results:
+            print("\n❌ One or more endpoint tests failed!")
             return False
             
         print("\n" + "📊" * 20)
@@ -244,6 +318,11 @@ def run_comparison_tests(server_url, audio_file, num_tests):
         raw_total_times = [r['total_time'] for r in raw_results]
         raw_processing_times = [r['processing_time'] for r in raw_results]
         raw_network_times = [r['network_time'] for r in raw_results]
+        
+        # Calculate statistics for canary endpoint
+        canary_total_times = [r['total_time'] for r in canary_results]
+        canary_processing_times = [r['processing_time'] for r in canary_results]
+        canary_network_times = [r['network_time'] for r in canary_results]
         
         def calculate_stats(times):
             if not times:
@@ -277,42 +356,66 @@ def run_comparison_tests(server_url, audio_file, num_tests):
         raw_net_min, raw_net_max, raw_net_avg, raw_net_med, raw_net_std = calculate_stats(raw_network_times)
         print(f"   Network:        {raw_net_min:.1f}ms min, {raw_net_max:.1f}ms max, {raw_net_avg:.1f}ms avg, {raw_net_med:.1f}ms median, ±{raw_net_std:.1f}ms std")
         
+        print(f"\n🐦 /v1/transcribe-raw/canary Endpoint Performance:")
+        canary_min, canary_max, canary_avg, canary_med, canary_std = calculate_stats(canary_total_times)
+        print(f"   Total Latency:  {canary_min:.1f}ms min, {canary_max:.1f}ms max, {canary_avg:.1f}ms avg, {canary_med:.1f}ms median, ±{canary_std:.1f}ms std")
+        
+        canary_proc_min, canary_proc_max, canary_proc_avg, canary_proc_med, canary_proc_std = calculate_stats(canary_processing_times)
+        print(f"   Processing:     {canary_proc_min:.1f}ms min, {canary_proc_max:.1f}ms max, {canary_proc_avg:.1f}ms avg, {canary_proc_med:.1f}ms median, ±{canary_proc_std:.1f}ms std")
+        
+        canary_net_min, canary_net_max, canary_net_avg, canary_net_med, canary_net_std = calculate_stats(canary_network_times)
+        print(f"   Network:        {canary_net_min:.1f}ms min, {canary_net_max:.1f}ms max, {canary_net_avg:.1f}ms avg, {canary_net_med:.1f}ms median, ±{canary_net_std:.1f}ms std")
+        
         # Performance comparison
         print(f"\n⚡ PERFORMANCE COMPARISON:")
         raw_improvement = ((chunk_avg - raw_avg) / chunk_avg) * 100 if chunk_avg > 0 else 0
-        processing_improvement = ((chunk_proc_avg - raw_proc_avg) / chunk_proc_avg) * 100 if chunk_proc_avg > 0 else 0
         
         if raw_avg < chunk_avg:
             print(f"   🚀 /v1/transcribe-raw is {raw_improvement:.1f}% FASTER than /v1/transcribe ({chunk_avg - raw_avg:.1f}ms saved per request)")
         else:
             print(f"   📉 /v1/transcribe-raw is {-raw_improvement:.1f}% SLOWER than /v1/transcribe ({raw_avg - chunk_avg:.1f}ms additional per request)")
         
-        print(f"   📊 Processing time: {processing_improvement:.1f}% improvement" if processing_improvement > 0 else f"   📊 Processing time: {-processing_improvement:.1f}% slower")
+        canary_improvement_vs_chunk = ((chunk_avg - canary_avg) / chunk_avg) * 100 if chunk_avg > 0 else 0
+        if canary_avg < chunk_avg:
+            print(f"   🚀 /v1/transcribe-raw/canary is {canary_improvement_vs_chunk:.1f}% FASTER than /v1/transcribe ({chunk_avg - canary_avg:.1f}ms saved per request)")
+        else:
+            print(f"   📉 /v1/transcribe-raw/canary is {-canary_improvement_vs_chunk:.1f}% SLOWER than /v1/transcribe ({canary_avg - chunk_avg:.1f}ms additional per request)")
+        
+        canary_improvement_vs_raw = ((raw_avg - canary_avg) / raw_avg) * 100 if raw_avg > 0 else 0
+        if canary_avg < raw_avg:
+            print(f"   🚀 /v1/transcribe-raw/canary is {canary_improvement_vs_raw:.1f}% FASTER than /v1/transcribe-raw ({raw_avg - canary_avg:.1f}ms saved per request)")
+        else:
+            print(f"   📉 /v1/transcribe-raw/canary is {-canary_improvement_vs_raw:.1f}% SLOWER than /v1/transcribe-raw ({canary_avg - raw_avg:.1f}ms additional per request)")
         
         # Real-time factors
         chunk_rt_factor = (audio_duration / (chunk_proc_avg / 1000)) if chunk_proc_avg > 0 else 0
         raw_rt_factor = (audio_duration / (raw_proc_avg / 1000)) if raw_proc_avg > 0 else 0
+        canary_rt_factor = (audio_duration / (canary_proc_avg / 1000)) if canary_proc_avg > 0 else 0
         
         print(f"\n🎵 REAL-TIME PERFORMANCE:")
         print(f"   Audio duration:     {audio_duration:.3f} seconds")
         print(f"   /v1/transcribe:     {chunk_rt_factor:.0f}x real-time")
         print(f"   /v1/transcribe-raw: {raw_rt_factor:.0f}x real-time")
+        print(f"   /v1/transcribe-raw/canary: {canary_rt_factor:.0f}x real-time")
         
         # Transcription consistency check
         print(f"\n📝 TRANSCRIPTION CONSISTENCY:")
         chunk_unique = len(set(chunk_transcriptions))
         raw_unique = len(set(raw_transcriptions))
+        canary_unique = len(set(canary_transcriptions))
         
         print(f"   /v1/transcribe:     {chunk_unique}/{len(chunk_transcriptions)} unique results")
         print(f"   /v1/transcribe-raw: {raw_unique}/{len(raw_transcriptions)} unique results")
+        print(f"   /v1/transcribe-raw/canary: {canary_unique}/{len(canary_transcriptions)} unique results")
         
-        if chunk_unique == 1 and raw_unique == 1:
-            if chunk_transcriptions[0] == raw_transcriptions[0]:
-                print(f"   ✅ Both endpoints produce identical results")
+        if chunk_unique == 1 and raw_unique == 1 and canary_unique == 1:
+            if chunk_transcriptions[0] == raw_transcriptions[0] and raw_transcriptions[0] == canary_transcriptions[0]:
+                print(f"   ✅ All endpoints produce identical results")
             else:
                 print(f"   ⚠️  Endpoints produce different results:")
                 print(f"      /v1/transcribe:     \"{chunk_transcriptions[0][:100]}{'...' if len(chunk_transcriptions[0]) > 100 else ''}\"")
                 print(f"      /v1/transcribe-raw: \"{raw_transcriptions[0][:100]}{'...' if len(raw_transcriptions[0]) > 100 else ''}\"")
+                print(f"      /v1/transcribe-raw/canary: \"{canary_transcriptions[0][:100]}{'...' if len(canary_transcriptions[0]) > 100 else ''}\"")
         else:
             print(f"   ⚠️  Inconsistent results detected")
         
