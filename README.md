@@ -1,4 +1,4 @@
-# parakeet fastAPI server
+# parakeet-FastAPI
 FastAPI server providing openAI compatible endpoints for Nvidia nemo parakeet and canary speech to text models
 
 ### requirements
