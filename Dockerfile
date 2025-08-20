@@ -1,6 +1,6 @@
 FROM pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime
 
-RUN apt-get update && apt-get -y install libopenmpi-dev nano htop ffmpeg
+RUN apt-get update && apt-get -y install libopenmpi-dev nano htop ffmpeg build-essential gcc g++ make cmake
 
 RUN mkdir -p /workspace
 COPY . /workspace/parakeet-FastAPI
