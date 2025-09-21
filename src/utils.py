@@ -6,10 +6,9 @@ from dotenv import load_dotenv
 load_dotenv()   
 
 # Configuration
-PARAKEET_MODEL_NAME = os.getenv("PARAKEET_MODEL_NAME", "nvidia/parakeet-tdt-0.6b-v2")
+PARAKEET_MODEL_NAME = os.getenv("PARAKEET_MODEL_NAME", "nvidia/parakeet-tdt-0.6b-v3")
 CANARY_MODEL_NAME = os.getenv("CANARY_MODEL_NAME", "nvidia/canary-1b-flash")
 TARGET_SR = int(os.getenv("TARGET_SR", "16000"))
-MODEL_PRECISION = os.getenv("MODEL_PRECISION", "fp16")
 DEVICE = os.getenv("DEVICE", "cuda")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "4"))
 BEAM_SIZE = int(os.getenv("BEAM_SIZE", "4"))

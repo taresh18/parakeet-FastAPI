@@ -35,7 +35,7 @@ async def lifespan(app):
 
 # Create FastAPI app
 app = FastAPI(
-    title="Parakeet-TDT 0.6B v2 STT service",
+    title="Parakeet-TDT 0.6B v3 STT service",
     version="0.0.1",
     description=(
         "High-accuracy English speech-to-text with parakeet and canary models "
@@ -44,18 +44,19 @@ app = FastAPI(
 )
 
 # Endpoints
+
 @app.post(
     "/v1/transcribe/parakeet",
     response_model=AudioChunkTranscriptionResponse,
     summary="Transcribe raw audio data using Parakeet model",
     description="Transcribe raw audio data (16-bit PCM, mono, any sample rate) via request body using Parakeet model"
 )
-async def transcribe_raw_audio_chunk(
+async def transcribe_raw_audio_chunk_parakeet(
     request: Request,
     sample_rate: int = Query(..., description="Sample rate of the audio data")
 ):
     """
-    Transcribe raw audio data via request body.
+    Transcribe raw audio data via request body with Parakeet model.
     """
     try:
         model = request.app.state.parakeet_model
@@ -73,10 +74,10 @@ async def transcribe_raw_audio_chunk(
         )
         
     except Exception as exc:
-        logger.exception("Raw audio transcription failed")
+        logger.exception("Parakeet raw audio transcription failed")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Raw audio transcription failed: {str(exc)}"
+            detail=f"Parakeet raw audio transcription failed: {str(exc)}"
         ) from exc
 
 

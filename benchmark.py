@@ -35,68 +35,6 @@ def load_wav_as_raw_pcm(wav_file_path):
         print(f"✗ Error loading WAV file: {e}")
         return None, None, None, None, None
 
-def test_transcribe_parakeet_endpoint(server_url, raw_pcm_data, sample_rate, num_tests=5):
-    """Test the /v1/transcribe/parakeet endpoint with detailed latency analysis."""
-    
-    print(f"🎯 Testing /v1/transcribe/parakeet endpoint")
-    print("=" * 60)
-    print(f"🔥 Starting warmup + measurement tests...")
-    print("-" * 60)
-    
-    results = []
-    transcriptions = []
-    
-    # Use session for keep-alive connections
-    session = requests.Session()
-    
-    for i in range(num_tests + 1):  # +1 for warmup
-        start_time = time.time()
-        
-        try:
-            # Send raw audio data directly in request body
-            headers = {'Content-Type': 'application/octet-stream'}
-            params = {'sample_rate': sample_rate}
-            
-            response = session.post(
-                f"{server_url}/v1/transcribe/parakeet",
-                data=raw_pcm_data,
-                headers=headers,
-                params=params,
-                timeout=30
-            )
-            
-            total_time = time.time() - start_time
-            
-            if response.status_code == 200:
-                result = response.json()
-                server_processing_time = result.get('processing_time', 0)
-                network_time = total_time - server_processing_time
-                transcription = result.get('text', '')
-                
-                if i == 0:  # Warmup
-                    print(f"WARMUP: ✓ {total_time*1000:.1f}ms total ({server_processing_time*1000:.1f}ms server + {network_time*1000:.1f}ms network)")
-                    print(f"    📝 Text: \"{transcription[:200]}{'...' if len(transcription) > 200 else ''}\"")
-                    print(f"    🔥 Warmup complete - model loaded and ready")
-                else:
-                    results.append({
-                        'total_time': total_time,
-                        'server_processing_time': server_processing_time,
-                        'network_time': network_time
-                    })
-                    transcriptions.append(transcription)
-            else:
-                print(f"Test {i}/{num_tests}: ✗ Failed with status {response.status_code}")
-                print(f"    Response: {response.text}")
-                return None
-                
-        except Exception as e:
-            print(f"Test {i}/{num_tests}: ✗ Exception: {e}")
-            return None
-    
-    # Close session
-    session.close()
-    
-    return results, transcriptions
 
 def test_transcribe_canary_endpoint(server_url, raw_pcm_data, sample_rate, num_tests=5):
     """Test the /v1/transcribe/canary endpoint with detailed latency analysis."""
@@ -161,6 +99,69 @@ def test_transcribe_canary_endpoint(server_url, raw_pcm_data, sample_rate, num_t
     
     return results, transcriptions
 
+def test_transcribe_parakeet_endpoint(server_url, raw_pcm_data, sample_rate, num_tests=5):
+    """Test the /v1/transcribe/parakeet endpoint with detailed latency analysis."""
+    
+    print(f"🎯 Testing /v1/transcribe/parakeet endpoint")
+    print("=" * 60)
+    print(f"🔥 Starting warmup + measurement tests...")
+    print("-" * 60)
+    
+    results = []
+    transcriptions = []
+    
+    # Use session for keep-alive connections
+    session = requests.Session()
+    
+    for i in range(num_tests + 1):  # +1 for warmup
+        start_time = time.time()
+        
+        try:
+            # Send raw audio data directly in request body
+            headers = {'Content-Type': 'application/octet-stream'}
+            params = {'sample_rate': sample_rate}
+            
+            response = session.post(
+                f"{server_url}/v1/transcribe/parakeet",
+                data=raw_pcm_data,
+                headers=headers,
+                params=params,
+                timeout=30
+            )
+            
+            total_time = time.time() - start_time
+            
+            if response.status_code == 200:
+                result = response.json()
+                server_processing_time = result.get('processing_time', 0)
+                network_time = total_time - server_processing_time
+                transcription = result.get('text', '')
+                
+                if i == 0:  # Warmup
+                    print(f"WARMUP: ✓ {total_time*1000:.1f}ms total ({server_processing_time*1000:.1f}ms server + {network_time*1000:.1f}ms network)")
+                    print(f"    📝 Text: \"{transcription[:200]}{'...' if len(transcription) > 200 else ''}\"")
+                    print(f"    🔥 Warmup complete - model loaded and ready")
+                else:
+                    results.append({
+                        'total_time': total_time,
+                        'server_processing_time': server_processing_time,
+                        'network_time': network_time
+                    })
+                    transcriptions.append(transcription)
+            else:
+                print(f"Test {i}/{num_tests}: ✗ Failed with status {response.status_code}")
+                print(f"    Response: {response.text}")
+                return None
+                
+        except Exception as e:
+            print(f"Test {i}/{num_tests}: ✗ Exception: {e}")
+            return None
+    
+    # Close session
+    session.close()
+    
+    return results, transcriptions
+
 def run_comparison_tests(server_url, audio_file, num_tests):
     """Run all comparison tests and return True if all succeed."""
     
@@ -182,6 +183,7 @@ def run_comparison_tests(server_url, audio_file, num_tests):
     print(f"  Tests per endpoint: {num_tests} (+ 1 warmup)")
     
     try:
+        
         # Test parakeet endpoint
         parakeet_results, parakeet_transcriptions = test_transcribe_parakeet_endpoint(server_url, raw_pcm_data, sample_rate, num_tests)
         
@@ -192,6 +194,7 @@ def run_comparison_tests(server_url, audio_file, num_tests):
         
         # Test canary endpoint
         canary_results, canary_transcriptions = test_transcribe_canary_endpoint(server_url, raw_pcm_data, sample_rate, num_tests)
+        
         
         if not parakeet_results or not canary_results:
             print("\n❌ One or more endpoint tests failed!")
@@ -288,8 +291,8 @@ def run_comparison_tests(server_url, audio_file, num_tests):
                 print(f"   ✅ Both endpoints produce identical results")
             else:
                 print(f"   ⚠️  Endpoints produce different results:")
-                print(f"      /v1/transcribe/parakeet: \"{parakeet_transcriptions[0][:100]}{'...' if len(parakeet_transcriptions[0]) > 100 else ''}\"")
-                print(f"      /v1/transcribe/canary: \"{canary_transcriptions[0][:100]}{'...' if len(canary_transcriptions[0]) > 100 else ''}\"")
+                print(f"      /v1/transcribe/parakeet: \"{parakeet_transcriptions[0]}\"")
+                print(f"      /v1/transcribe/canary: \"{canary_transcriptions[0]}\"")
         else:
             print(f"   ⚠️  Inconsistent results detected")
         
