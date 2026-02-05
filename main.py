@@ -8,9 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Import configuration and models
-from src.utils import logger
+from src.utils import logger, MAX_BATCH_SIZE, MAX_BATCH_WAIT_MS
 from src.schemas import AudioChunkTranscriptionResponse
 from src.models import ParakeetModel, CanaryModel
+from src.batch_worker import BatchInferenceWorker, preprocess_audio
 
 
 @asynccontextmanager
@@ -24,12 +25,33 @@ async def lifespan(app):
     
     app.state.parakeet_model = parakeet_model
     app.state.canary_model = canary_model
-    logger.info("Models loaded and ready")
+
+    # Create and start batch workers
+    parakeet_worker = BatchInferenceWorker(
+        model=parakeet_model.model,
+        model_type="parakeet",
+        max_batch_size=MAX_BATCH_SIZE,
+        max_wait_ms=MAX_BATCH_WAIT_MS,
+    )
+    canary_worker = BatchInferenceWorker(
+        model=canary_model.model,
+        model_type="canary",
+        max_batch_size=MAX_BATCH_SIZE,
+        max_wait_ms=MAX_BATCH_WAIT_MS,
+    )
+    parakeet_worker.start()
+    canary_worker.start()
+
+    app.state.parakeet_worker = parakeet_worker
+    app.state.canary_worker = canary_worker
+    logger.info("Models loaded and batch workers started")
 
     try:
         yield
     finally:
-        logger.info("Releasing GPU memory")
+        logger.info("Shutting down batch workers and releasing GPU memory")
+        parakeet_worker.stop()
+        canary_worker.stop()
         parakeet_model.cleanup()
         canary_model.cleanup()
 
@@ -59,20 +81,19 @@ async def transcribe_raw_audio_chunk_parakeet(
     Transcribe raw audio data via request body with Parakeet model.
     """
     try:
-        model = request.app.state.parakeet_model
-        
-        # Read raw audio data from request body
         audio_data = await request.body()
-        
-        # Use the model's infer method
-        result = model.infer(audio_data, sample_rate)
-        
+
+        device = next(request.app.state.parakeet_model.model.parameters()).device
+        audio_array, audio_duration = preprocess_audio(audio_data, sample_rate, device)
+
+        result = await request.app.state.parakeet_worker.submit(audio_array, audio_duration)
+
         return AudioChunkTranscriptionResponse(
             text=result['text'],
             processing_time=result['processing_time'],
-            audio_duration=result['audio_duration']
+            audio_duration=result['audio_duration'],
         )
-        
+
     except Exception as exc:
         logger.exception("Parakeet raw audio transcription failed")
         raise HTTPException(
@@ -95,20 +116,19 @@ async def transcribe_raw_audio_chunk_canary(
     Transcribe raw audio data via request body with Canary model.
     """
     try:
-        model = request.app.state.canary_model
-        
-        # Read raw audio data from request body
         audio_data = await request.body()
-        
-        # Use the model's infer method
-        result = model.infer(audio_data, sample_rate)
-        
+
+        device = next(request.app.state.canary_model.model.parameters()).device
+        audio_array, audio_duration = preprocess_audio(audio_data, sample_rate, device)
+
+        result = await request.app.state.canary_worker.submit(audio_array, audio_duration)
+
         return AudioChunkTranscriptionResponse(
             text=result['text'],
             processing_time=result['processing_time'],
-            audio_duration=result['audio_duration']
+            audio_duration=result['audio_duration'],
         )
-        
+
     except Exception as exc:
         logger.exception("Canary raw audio transcription failed")
         raise HTTPException(

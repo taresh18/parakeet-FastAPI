@@ -122,6 +122,11 @@ class ParakeetModel:
                 PARAKEET_MODEL_NAME,
                 map_location=DEVICE
             ).to(dtype=dtype)
+            if self.model.cfg.decoding.strategy != "beam":
+                with open_dict(self.model.cfg.decoding):
+                    self.model.cfg.decoding.strategy = "greedy_batch"
+                    self.model.cfg.decoding.greedy.use_cuda_graph_decoder = True
+                self.model.change_decoding_strategy(self.model.cfg.decoding)
             logger.info(f"Loaded Parakeet model with fp16 weights on {DEVICE}")
         
         # Aggressive cleanup
